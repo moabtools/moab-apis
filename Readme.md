@@ -11,6 +11,11 @@ pip install -r requirements.txt
 Пример использования:
 
 ```
+client = SerpProClient(
+    api_key="your-api-key",
+    verify_ssl=True
+)
+
 try:
     # ===== WORDSTAT EXAMPLES =====
     print("=== WORDSTAT ===")
