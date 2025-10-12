@@ -11,6 +11,7 @@ pip install -r requirements.txt
 Пример использования:
 
 ```
+# Инициализация клиента
 client = SerpProClient(
     api_key="your-api-key",
     verify_ssl=True
@@ -20,20 +21,31 @@ try:
     # ===== WORDSTAT EXAMPLES =====
     print("=== WORDSTAT ===")
 
-    # Получение частотности
+    # Получение частотности (Regular - обычный Wordstat)
     frequency_result = client.wordstat_frequency(
         query="Король и Шут",
         region="225",
         device=WordstatDevice.ALL,
-        task_type=WordstatTaskType.WS
+        task_type=WordstatTaskType.REGULAR,
+        syntax=WordstatSyntax.WS
     )
     print(f"Frequency: {frequency_result.frequency}")
 
-    # Получение постраничных данных
+    # Получение частотности через Яндекс.Директ
+    frequency_direct = client.wordstat_frequency(
+        query="КиШ",
+        region="225",
+        task_type=WordstatTaskType.DIRECT,
+        syntax=WordstatSyntax.WS
+    )
+    print(f"Frequency (Direct): {frequency_direct.frequency}")
+
+    # Получение постраничных данных (Regular)
     deep_result = client.wordstat_deep(
         query="Король и Шут",
         region="225",
-        device=WordstatDevice.ALL
+        device=WordstatDevice.ALL,
+        task_type=WordstatTaskType.REGULAR
     )
     print(f"Deep associations: {len(deep_result.associations or [])}")
     print(f"Deep popular: {len(deep_result.popular or [])}")
@@ -74,12 +86,12 @@ try:
     print("\n=== FINANCE ===")
 
     # Получение общей статистики
-    total = client.finance_total(service=ServiceType.WORDSTAT)
+    total = client.finance_total(service=ServiceType.WORDSTAT_FREQUENCY)
     print(f"Total requests: {total.request_count}")
 
     # Получение статистики за период
     stats = client.finance_statistics(
-        service_type=ServiceType.WORDSTAT,
+        service_type=ServiceType.WORDSTAT_FREQUENCY,
         start_date="2025-07-01",
         end_date="2025-10-06"
     )

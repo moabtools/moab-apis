@@ -14,11 +14,17 @@ from pydantic import BaseModel, Field
 
 class ServiceType(str, Enum):
     """Enum для типов сервисов"""
-    WORDSTAT = "Wordstat"
-    YANDEX_SERP = "YandexSerp"
-    GOOGLE_SERP = "GoogleSerp"
+    WORDSTAT_FREQUENCY = "WordstatFrequency"
+    WORDSTAT_DIRECT_FREQUENCY = "WordstatDirectFrequency"
+    WORDSTAT_DEEP = "WordstatDeep"
+    WORDSTAT_DIRECT_DEEP = "WordstatDirectDeep"
+    WORDSTAT_HISTORY = "WordstatHistory"
+    YANDEX_SERP_POSITION = "YandexSerpPosition"
+    GOOGLE_SERP_POSITION = "GoogleSerpPosition"
     YANDEX_INDEXATION = "YandexIndexation"
     GOOGLE_INDEXATION = "GoogleIndexation"
+    YANDEX_SERP_URLS = "YandexSerpUrls"
+    GOOGLE_SERP_URLS = "GoogleSerpUrls"
 
 
 class WordstatDevice(str, Enum):
@@ -29,14 +35,20 @@ class WordstatDevice(str, Enum):
     TABLET = "Tablet"
 
 
-class WordstatTaskType(str, Enum):
-    """Enum для типов задач Wordstat"""
+class WordstatSyntax(str, Enum):
+    """Enum для синтаксиса Wordstat"""
     NONE = "None"
     WS = "Ws"
     QUOTES = "Quotes"
     QUOTES_EXCLAMATION_MARK = "QuotesExclamationMark"
     QUOTES_SQUARE_BRACKETS = "QuotesSquareBrackets"
     QUOTES_EXCLAMATION_MARK_SQUARE_BRACKETS = "QuotesExclamationMarkSquareBrackets"
+
+
+class WordstatTaskType(str, Enum):
+    """Enum для типов задач Wordstat"""
+    REGULAR = "Regular"
+    DIRECT = "Direct"
 
 
 class WordstatGrouping(str, Enum):
@@ -80,7 +92,8 @@ class FrequencyRequest(BaseModel):
     query: Optional[str] = None
     region: Optional[str] = None
     device: WordstatDevice = WordstatDevice.ALL
-    task_type: WordstatTaskType = WordstatTaskType.WS
+    task_type: WordstatTaskType = WordstatTaskType.REGULAR
+    syntax: WordstatSyntax = WordstatSyntax.WS
 
 
 class DeepRequest(BaseModel):
@@ -88,6 +101,7 @@ class DeepRequest(BaseModel):
     query: Optional[str] = None
     region: Optional[str] = None
     device: WordstatDevice = WordstatDevice.ALL
+    task_type: WordstatTaskType = WordstatTaskType.REGULAR
 
 
 class HistoryRequest(BaseModel):
@@ -112,20 +126,17 @@ class FinanceStatsRequest(BaseModel):
 class FrequencyResponse(BaseModel):
     """Ответ частотности"""
     frequency: Optional[int] = None
-    is_query_invalid: bool = False
 
 
 class DeepResponse(BaseModel):
     """Ответ постраничных данных"""
     associations: Optional[List[WordstatItemData]] = None
     popular: Optional[List[WordstatItemData]] = None
-    is_query_invalid: bool = False
 
 
 class HistoryResponse(BaseModel):
     """Ответ исторических данных"""
     items: Optional[List[HistoryResponseItem]] = None
-    is_query_invalid: bool = False
 
 
 class RegionResponse(BaseModel):
@@ -213,6 +224,16 @@ class SerpProClient:
 
             if response.status_code == 200:
                 return response.json()
+            elif response.status_code == 422:
+                # Обработка ошибки 422 Unprocessable Content (ошибочный запрос)
+                error_data = response.json() if response.text else {}
+                try:
+                    error_model = GlobalErrorModel(**error_data)
+                    error_message = error_model.error_message or 'Unprocessable Content - invalid query'
+                except:
+                    error_message = error_data.get('error_message', 'Unprocessable Content - invalid query')
+                    error_model = None
+                raise SerpProAPIError(response.status_code, error_message, error_model)
             else:
                 error_data = response.json() if response.text else {}
                 try:
@@ -232,15 +253,17 @@ class SerpProClient:
                           query: Optional[str] = None,
                           region: Optional[str] = None,
                           device: WordstatDevice = WordstatDevice.ALL,
-                          task_type: WordstatTaskType = WordstatTaskType.WS) -> FrequencyResponse:
+                          task_type: WordstatTaskType = WordstatTaskType.REGULAR,
+                          syntax: WordstatSyntax = WordstatSyntax.WS) -> FrequencyResponse:
         """
         Получает частотность запроса
 
         Args:
             query: Поисковый запрос
             region: Список регионов, разделенных запятой. Пример: "225" или "225,213"
-            device: Тип устройства
-            task_type: Тип задачи
+            device: Тип устройства (не поддерживается для task_type=Direct)
+            task_type: Тип задачи (Regular - обычный вордстат, Direct - Яндекс.Директ)
+            syntax: Синтаксис запроса
 
         Returns:
             FrequencyResponse: Данные о частотности
@@ -249,7 +272,8 @@ class SerpProClient:
             query=query,
             region=region,
             device=device,
-            task_type=task_type
+            task_type=task_type,
+            syntax=syntax
         )
 
         response_data = self._make_request('POST', '/api/v1/wordstat/frequency',
@@ -260,14 +284,16 @@ class SerpProClient:
     def wordstat_deep(self,
                      query: Optional[str] = None,
                      region: Optional[str] = None,
-                     device: WordstatDevice = WordstatDevice.ALL) -> DeepResponse:
+                     device: WordstatDevice = WordstatDevice.ALL,
+                     task_type: WordstatTaskType = WordstatTaskType.REGULAR) -> DeepResponse:
         """
         Получает постраничные данные по запросу (похожие и популярные запросы)
 
         Args:
             query: Поисковый запрос
             region: Список регионов, разделенных запятой
-            device: Тип устройства
+            device: Тип устройства (не поддерживается для task_type=Direct)
+            task_type: Тип задачи (Regular - обычный вордстат, Direct - Яндекс.Директ)
 
         Returns:
             DeepResponse: Постраничные данные
@@ -275,7 +301,8 @@ class SerpProClient:
         request_data = DeepRequest(
             query=query,
             region=region,
-            device=device
+            device=device,
+            task_type=task_type
         )
 
         response_data = self._make_request('POST', '/api/v1/wordstat/deep',
@@ -430,20 +457,31 @@ if __name__ == "__main__":
         # ===== WORDSTAT EXAMPLES =====
         print("=== WORDSTAT ===")
 
-        # Получение частотности
+        # Получение частотности (Regular - обычный Wordstat)
         frequency_result = client.wordstat_frequency(
             query="Король и Шут",
             region="225",
             device=WordstatDevice.ALL,
-            task_type=WordstatTaskType.WS
+            task_type=WordstatTaskType.REGULAR,
+            syntax=WordstatSyntax.WS
         )
         print(f"Frequency: {frequency_result.frequency}")
 
-        # Получение постраничных данных
+        # Получение частотности через Яндекс.Директ
+        frequency_direct = client.wordstat_frequency(
+            query="КиШ",
+            region="225",
+            task_type=WordstatTaskType.DIRECT,
+            syntax=WordstatSyntax.WS
+        )
+        print(f"Frequency (Direct): {frequency_direct.frequency}")
+
+        # Получение постраничных данных (Regular)
         deep_result = client.wordstat_deep(
             query="Король и Шут",
             region="225",
-            device=WordstatDevice.ALL
+            device=WordstatDevice.ALL,
+            task_type=WordstatTaskType.REGULAR
         )
         print(f"Deep associations: {len(deep_result.associations or [])}")
         print(f"Deep popular: {len(deep_result.popular or [])}")
@@ -484,12 +522,12 @@ if __name__ == "__main__":
         print("\n=== FINANCE ===")
 
         # Получение общей статистики
-        total = client.finance_total(service=ServiceType.WORDSTAT)
+        total = client.finance_total(service=ServiceType.WORDSTAT_FREQUENCY)
         print(f"Total requests: {total.request_count}")
 
         # Получение статистики за период
         stats = client.finance_statistics(
-            service_type=ServiceType.WORDSTAT,
+            service_type=ServiceType.WORDSTAT_FREQUENCY,
             start_date="2025-07-01",
             end_date="2025-10-06"
         )
