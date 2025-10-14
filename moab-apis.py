@@ -6,6 +6,7 @@ SerpPro API Client v2 для методов Wordstat, Region и Finance
 from typing import Optional, List
 from datetime import datetime
 from enum import Enum
+import time
 import requests
 from pydantic import BaseModel, Field
 
@@ -200,7 +201,7 @@ class SerpProClient:
     def _make_request(self, method: str, endpoint: str, data: Optional[dict] = None,
                      params: Optional[dict] = None) -> dict:
         """
-        Выполняет HTTP запрос к API
+        Выполняет HTTP запрос к API с таймаутом 300 секунд и бесконечным циклом повторных попыток
 
         Args:
             method: HTTP метод (GET, POST и т.д.)
@@ -212,40 +213,51 @@ class SerpProClient:
             dict: Ответ от API
 
         Raises:
-            SerpProAPIError: При ошибках API
+            SerpProAPIError: При ошибках API (но не при таймауте)
         """
         url = f"{self.base_url}{endpoint}"
+        timeout = 300  # Таймаут 300 секунд
 
-        try:
-            if method.upper() == 'POST':
-                response = self.session.post(url, json=data, verify=self.verify_ssl)
-            else:
-                response = self.session.get(url, params=params, verify=self.verify_ssl)
+        while True:  # Бесконечный цикл повторных попыток
+            try:
+                if method.upper() == 'POST':
+                    response = self.session.post(url, json=data, verify=self.verify_ssl, timeout=timeout)
+                else:
+                    response = self.session.get(url, params=params, verify=self.verify_ssl, timeout=timeout)
 
-            if response.status_code == 200:
-                return response.json()
-            elif response.status_code == 422:
-                # Обработка ошибки 422 Unprocessable Content (ошибочный запрос)
-                error_data = response.json() if response.text else {}
-                try:
-                    error_model = GlobalErrorModel(**error_data)
-                    error_message = error_model.error_message or 'Unprocessable Content - invalid query'
-                except:
-                    error_message = error_data.get('error_message', 'Unprocessable Content - invalid query')
-                    error_model = None
-                raise SerpProAPIError(response.status_code, error_message, error_model)
-            else:
-                error_data = response.json() if response.text else {}
-                try:
-                    error_model = GlobalErrorModel(**error_data)
-                    error_message = error_model.error_message or f'HTTP {response.status_code}'
-                except:
-                    error_message = error_data.get('error_message', f'HTTP {response.status_code}')
-                    error_model = None
-                raise SerpProAPIError(response.status_code, error_message, error_model)
+                # Если получен любой HTTP-код ответа, обрабатываем его
+                if response.status_code == 200:
+                    return response.json()
+                elif response.status_code == 422:
+                    # Обработка ошибки 422 Unprocessable Content (ошибочный запрос)
+                    error_data = response.json() if response.text else {}
+                    try:
+                        error_model = GlobalErrorModel(**error_data)
+                        error_message = error_model.error_message or 'Unprocessable Content - invalid query'
+                    except:
+                        error_message = error_data.get('error_message', 'Unprocessable Content - invalid query')
+                        error_model = None
+                    raise SerpProAPIError(response.status_code, error_message, error_model)
+                else:
+                    error_data = response.json() if response.text else {}
+                    try:
+                        error_model = GlobalErrorModel(**error_data)
+                        error_message = error_model.error_message or f'HTTP {response.status_code}'
+                    except:
+                        error_message = error_data.get('error_message', f'HTTP {response.status_code}')
+                        error_model = None
+                    raise SerpProAPIError(response.status_code, error_message, error_model)
 
-        except requests.exceptions.RequestException as e:
-            raise SerpProAPIError(0, str(e))
+            except (requests.exceptions.Timeout,
+                    requests.exceptions.ReadTimeout,
+                    requests.exceptions.ConnectTimeout):
+                # При таймауте продолжаем цикл и делаем новую попытку
+                print(f"Timeout occurred after {timeout} seconds. Retrying...")
+                continue
+
+            except requests.exceptions.RequestException as e:
+                # Для всех остальных сетевых ошибок (не таймаут) - выбрасываем исключение
+                raise SerpProAPIError(0, str(e))
 
     # ===== WORDSTAT METHODS =====
 
